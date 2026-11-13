@@ -1,7 +1,7 @@
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
-const state = { cat: "tech", words: [], article: null, sentences: [], config: {} };
+const state = { bookmarks: [], cat: "tech", words: [], article: null, sentences: [], config: {} };
 
 // ---------- API ----------
 async function api(path, opts = {}) {
@@ -41,23 +41,74 @@ function timeAgo(d) {
   return `${Math.round(m / 1440)}일 전`;
 }
 
+const STAR = (on) => `<svg width="18" height="18" viewBox="0 0 24 24" fill="${on ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8-5.2-2.7-5.2 2.7 1-5.8-4.3-4.1 5.9-.9z"/></svg>`;
+const isBookmarked = (url) => state.bookmarks.some((b) => b.url === url);
+
+async function toggleBookmark(item) {
+  const url = item.link || item.url;
+  if (isBookmarked(url)) {
+    state.bookmarks = await api(`/api/bookmarks?url=${encodeURIComponent(url)}`, { method: "DELETE" });
+  } else {
+    state.bookmarks = await api("/api/bookmarks", {
+      method: "POST",
+      body: { url, title: item.title, site: item.source || item.site, summary: item.summary },
+    });
+  }
+  updateBookmarkUi();
+}
+function updateBookmarkUi() {
+  document.querySelectorAll("#feed [data-bm]").forEach((b) => {
+    const on = isBookmarked(b.dataset.bm);
+    b.innerHTML = STAR(on);
+    b.classList.toggle("on", on);
+    b.title = on ? "저장 취소" : "나중에 읽기";
+  });
+  const rb = $("#btn-bm");
+  if (rb && state.article) {
+    const on = isBookmarked(state.article.url);
+    rb.innerHTML = `${STAR(on)}<span>${on ? "저장됨" : "나중에 읽기"}</span>`;
+    rb.classList.toggle("on", on);
+  }
+  $("#saved-count").textContent = state.bookmarks.length ? state.bookmarks.length : "";
+}
+
 async function loadFeed(cat) {
   state.cat = cat;
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("active", b.dataset.cat === cat));
   const list = $("#feed");
   list.innerHTML = `<div class="loading"><span class="spinner"></span>기사를 불러오는 중…</div>`;
   try {
-    const { items } = await api(`/api/feed?cat=${cat}`);
+    let items;
+    if (cat === "saved") {
+      state.bookmarks = await api("/api/bookmarks");
+      items = state.bookmarks.map((b) => ({ link: b.url, title: b.title, source: b.site, summary: b.summary, date: b.savedAt, saved: true }));
+      if (!items.length) { list.innerHTML = `<div class="empty">저장한 기사가 없어요.<br>기사 카드나 읽기 화면의 ☆를 누르면 여기에 모여요.</div>`; return; }
+    } else {
+      ({ items } = await api(`/api/feed?cat=${cat}`));
+    }
     if (!items.length) { list.innerHTML = `<div class="empty">기사가 없어요.</div>`; return; }
     list.innerHTML = items.map((it, i) => `
       <li data-i="${i}">
-        <div class="src"><span>${esc(it.source)}</span><span>·</span><span>${esc(timeAgo(it.date))}</span></div>
+        <div class="src"><span>${esc(it.source)}</span><span>·</span><span>${it.saved ? "저장 " : ""}${esc(timeAgo(it.date))}</span>
+          <button class="bm" data-bm="${esc(it.link)}" aria-label="나중에 읽기"></button></div>
         <h3>${esc(it.title)}</h3>
         ${it.summary ? `<p>${esc(it.summary)}</p>` : ""}
       </li>`).join("");
-    list.onclick = (e) => {
+    updateBookmarkUi();
+    list.onclick = async (e) => {
+      const bm = e.target.closest("[data-bm]");
       const li = e.target.closest("li[data-i]");
-      if (li) openArticle(items[li.dataset.i].link);
+      if (!li) return;
+      const item = items[li.dataset.i];
+      if (bm) {
+        e.stopPropagation();
+        bm.disabled = true;
+        await toggleBookmark(item).catch((err) => alert(err.message));
+        bm.disabled = false;
+        if (cat === "saved" && !isBookmarked(item.link)) li.remove();
+        return;
+      }
+      openArticle(item.link);
     };
   } catch (err) {
     list.innerHTML = `<div class="error">${esc(err.message)}</div>`;
@@ -155,6 +206,7 @@ async function openArticle(url, push = true) {
     src.innerHTML = `원문: <a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.site)}</a>`;
     art.appendChild(src);
 
+    updateBookmarkUi();
     const lv = estimateLevel(a.blocks.map((b) => b.text).join(" "));
     $("#reader-meta").innerHTML = lv ? `<span class="level">≈ ${lv.cefr}</span>${lv.words.toLocaleString()} words · ${lv.minutes}분` : "";
     markSaved();
@@ -573,6 +625,14 @@ $("#btn-quiz").addEventListener("click", () => {
   draw();
 });
 
+$("#btn-bm").addEventListener("click", async (e) => {
+  if (!state.article) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  await toggleBookmark({ url: state.article.url, title: state.article.title, site: state.article.site }).catch((err) => alert(err.message));
+  btn.disabled = false;
+});
+
 // ---------- Login ----------
 function showLogin() {
   document.body.classList.add("locked");
@@ -607,6 +667,8 @@ async function start() {
     ? "사전 모드: Claude — 문장 문맥에 맞는 뜻을 보여드려요."
     : "사전 모드: 무료 (영영사전 + 기계번역). ANTHROPIC_API_KEY를 설정하면 문맥에 맞는 한글 뜻이 나와요.";
   state.words = await api("/api/words").catch(() => []);
+  state.bookmarks = await api("/api/bookmarks").catch(() => []);
+  updateBookmarkUi();
   updateCount();
   loadFeed(state.cat);
   if (location.hash === "#words") { renderWords(); show("words"); }
