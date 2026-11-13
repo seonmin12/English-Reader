@@ -316,14 +316,50 @@ async function lookup(word, sentence, rect) {
   popup.innerHTML = `<button class="close" aria-label="닫기">×</button><div class="head"><span class="word">${esc(word)}</span></div><div class="note"><span class="spinner"></span>찾는 중…</div>`;
   placePopup(rect);
   try {
-    const r = await api("/api/lookup", { method: "POST", body: { word, sentence } });
+    // core (meaning) and more (examples, translation) run in parallel; meaning shows first
+    const coreP = fetchPart(word, sentence, "core");
+    const moreP = state.config.claude ? fetchPart(word, sentence, "more") : null;
+    moreP?.catch(() => {});
+    const r = await coreP;
     if (seq !== lookupSeq) return;
     renderPopup(r, sentence);
     placePopup(rect);
+    if (r.mode === "claude" && moreP) {
+      moreP.then((m) => {
+        if (seq !== lookupSeq) return;
+        Object.assign(r, m, { mode: "claude" });
+        const slot = $("#more-slot", popup);
+        if (slot) slot.innerHTML = moreHtml(r);
+      }).catch(() => {
+        const slot = $("#more-slot", popup);
+        if (seq === lookupSeq && slot) slot.innerHTML = `<div class="notice">예문과 해석을 불러오지 못했어요.</div>`;
+      });
+    }
   } catch (err) {
     if (seq !== lookupSeq) return;
     popup.innerHTML = `<button class="close" aria-label="닫기">×</button><div class="head"><span class="word">${esc(word)}</span></div><div class="error" style="padding:10px 0;text-align:left">${esc(err.message)}</div>`;
   }
+}
+
+const partCache = new Map();
+function fetchPart(word, sentence, part) {
+  const key = `${part}|${word.toLowerCase()}|${sentence}`;
+  if (!partCache.has(key)) {
+    const p = api("/api/lookup", { method: "POST", body: { word, sentence, part } });
+    p.catch(() => partCache.delete(key));
+    partCache.set(key, p);
+  }
+  return partCache.get(key);
+}
+
+function moreHtml(r) {
+  let h = "";
+  if (r.contextNote) h += `<div class="note">${esc(r.contextNote)}</div>`;
+  if (r.otherMeanings?.length) h += `<div class="sec"><h4>다른 뜻</h4>${r.otherMeanings.map((m) => `<div class="sense"><span class="pos">${esc(m.pos)}</span>${esc(m.meaningKo)}</div>`).join("")}</div>`;
+  if (r.examples?.length) h += `<div class="sec"><h4>예문</h4>${r.examples.map((x) => `<div class="sense"><div class="ex">${esc(x.en)}</div><div class="exko">${esc(x.ko)}</div></div>`).join("")}</div>`;
+  if (r.collocations?.length) h += `<div class="sec"><h4>자주 쓰는 표현</h4><div class="chips">${r.collocations.map((c) => `<span>${esc(c)}</span>`).join("")}</div></div>`;
+  if (r.sentenceKo) h += `<div class="sec"><h4>문장 해석</h4><div class="sent-ko">${esc(r.sentenceKo)}</div></div>`;
+  return h;
 }
 
 function renderPopup(r, sentence) {
@@ -340,11 +376,7 @@ function renderPopup(r, sentence) {
   let body = "";
   if (r.mode === "claude") {
     body += `<div class="ko">${r.pos ? `<span class="pos">${esc(r.pos)}</span>` : ""}${esc(r.meaningKo)}</div>`;
-    if (r.contextNote) body += `<div class="note">${esc(r.contextNote)}</div>`;
-    if (r.otherMeanings?.length) body += `<div class="sec"><h4>다른 뜻</h4>${r.otherMeanings.map((m) => `<div class="sense"><span class="pos">${esc(m.pos)}</span>${esc(m.meaningKo)}</div>`).join("")}</div>`;
-    if (r.examples?.length) body += `<div class="sec"><h4>예문</h4>${r.examples.map((x) => `<div class="sense"><div class="ex">${esc(x.en)}</div><div class="exko">${esc(x.ko)}</div></div>`).join("")}</div>`;
-    if (r.collocations?.length) body += `<div class="sec"><h4>자주 쓰는 표현</h4><div class="chips">${r.collocations.map((c) => `<span>${esc(c)}</span>`).join("")}</div></div>`;
-    if (r.sentenceKo) body += `<div class="sec"><h4>문장 해석</h4><div class="sent-ko">${esc(r.sentenceKo)}</div></div>`;
+    body += `<div id="more-slot">${r.examples ? moreHtml(r) : `<div class="note"><span class="spinner"></span>예문·해석 불러오는 중…</div>`}</div>`;
   } else {
     body += `<div class="ko">${r.pos ? `<span class="pos">${esc(r.pos)}</span>` : ""}${esc(r.meaningKo || "(한글 뜻을 찾지 못했어요)")}</div>`;
     if (r.altKo?.length) body += `<div class="note">다른 번역: ${esc(r.altKo.join(" · "))}</div>`;
@@ -454,6 +486,7 @@ document.addEventListener("click", (e) => {
   }
 });
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") hidePopup(); });
+matchMedia("(max-width: 640px)").addEventListener("change", hidePopup); // layout switched (rotate/resize)
 
 // ---------- Wordbook ----------
 function updateCount() { $("#word-count").textContent = state.words.length; }
