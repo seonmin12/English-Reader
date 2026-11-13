@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#faf8f4" media="(prefers-color-scheme: light)" />
+  <meta name="theme-color" content="#17171a" media="(prefers-color-scheme: dark)" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-title" content="Reader" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📖</text></svg>" />
+  <title>English Reader</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <button class="brand" data-go="feed" aria-label="홈">English Reader</button>
+    <nav class="tabs" id="tabs">
+      <button data-cat="tech" class="active">Tech</button>
+      <button data-cat="business">Business</button>
+      <button data-cat="world">World</button>
+      <button data-cat="europe">Europe</button>
+    </nav>
+    <button class="wordbook-btn" data-go="words">단어장 <span id="word-count">0</span></button>
+  </header>
+
+  <!-- Login -->
+  <section id="view-login" class="login" hidden>
+    <form id="login-form" class="login-card">
+      <h1>English Reader</h1>
+      <p>비밀번호를 입력하세요</p>
+      <input id="login-pw" type="password" autocomplete="current-password" placeholder="비밀번호" required />
+      <button type="submit">로그인</button>
+      <div id="login-err" class="error" style="padding:8px 0 0"></div>
+    </form>
+  </section>
+
+  <main>
+    <!-- Feed -->
+    <section id="view-feed" class="view">
+      <form id="url-form" class="url-form">
+        <input id="url-input" type="url" placeholder="읽고 싶은 영어 기사 URL을 붙여넣어도 돼요" />
+        <button type="submit">열기</button>
+      </form>
+      <div id="mode-note" class="mode-note"></div>
+      <ul id="feed" class="feed"></ul>
+    </section>
+
+    <!-- Reader -->
+    <section id="view-reader" class="view" hidden>
+      <div class="reader-bar">
+        <button class="back" data-go="feed">← 목록</button>
+        <span id="reader-meta" class="reader-meta"></span>
+      </div>
+      <article id="article" class="article"></article>
+      <div id="player" class="player">
+        <button data-p="prev" title="이전 문장">⏮</button>
+        <button data-p="toggle" class="play">▶ 기사 듣기</button>
+        <button data-p="next" title="다음 문장">⏭</button>
+        <button data-p="rate" class="rate" title="속도">1×</button>
+        <span id="player-pos" class="pos-label"></span>
+        <select id="voice-select" title="목소리" aria-label="목소리"></select>
+      </div>
+    </section>
+
+    <!-- Wordbook -->
+    <section id="view-words" class="view" hidden>
+      <div class="reader-bar">
+        <button class="back" data-go="feed">← 목록</button>
+        <div class="wb-actions">
+          <button id="btn-quiz">플래시카드 복습</button>
+          <button id="btn-csv">CSV 내보내기</button>
+          <button id="btn-logout" hidden>로그아웃</button>
+        </div>
+      </div>
+      <div id="quiz" class="quiz" hidden></div>
+      <input id="wb-filter" class="wb-filter" placeholder="단어 검색" />
+      <ul id="wordlist" class="wordlist"></ul>
+    </section>
+  </main>
+
+  <!-- Lookup popup -->
+  <div id="popup" class="popup" hidden role="dialog" aria-live="polite"></div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
